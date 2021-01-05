@@ -1,17 +1,18 @@
-use crate::marked_skip;
+use crate::error::Error;
 use proc_macro2::TokenStream;
 use quote::quote;
-use std::error::Error;
+use std::error::Error as ErrorTrait;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
+use syn::punctuated::Punctuated;
+use syn::token::Comma;
 use syn::{
     AngleBracketedGenericArguments, Attribute, Field, Fields, FieldsNamed, FieldsUnnamed,
     GenericArgument, Ident, Meta, NestedMeta, Path, PathArguments, PathSegment, Type, TypeArray,
     TypePath, TypeTuple, Variant,
 };
-use term::Attr;
 
-pub(crate) fn map_ty(namespace: &str, ty: &syn::Type) -> Result<TokenStream, Box<dyn Error>> {
+pub(crate) fn map_ty(namespace: &str, ty: &syn::Type) -> Result<TokenStream, Box<dyn ErrorTrait>> {
     match ty {
         syn::Type::Path(TypePath { path, .. }) => map_path(namespace, path),
         syn::Type::Array(TypeArray { elem, .. }) => {
@@ -32,7 +33,7 @@ pub(crate) fn map_ty(namespace: &str, ty: &syn::Type) -> Result<TokenStream, Box
     }
 }
 
-pub(crate) fn map_id(namespace: &str, id: &syn::Ident) -> Result<TokenStream, Box<dyn Error>> {
+pub(crate) fn map_id(namespace: &str, id: &syn::Ident) -> Result<TokenStream, Box<dyn ErrorTrait>> {
     let id_string = id.to_string();
     match id_string.as_str() {
         "bool" | "i32" | "u32" | "i64" | "f32" | "f64" => Ok(
@@ -64,93 +65,76 @@ pub(crate) fn map_id(namespace: &str, id: &syn::Ident) -> Result<TokenStream, Bo
 //     }
 // }
 
-#[derive(Debug)]
-enum SchematizeError {
-    NonTypeGenericArgument(TokenStream),
-    MultipleArgs(TokenStream),
-    MissingAngleBrackets(TokenStream),
-    MissingArgs(TokenStream),
-    EmptyPath(TokenStream),
-}
-
-impl Display for SchematizeError {
+impl Display for Error {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         Debug::fmt(&self, f)
     }
 }
 
-impl Error for SchematizeError {}
-
-pub(crate) fn map_box(namespace: &str, seg: &PathSegment) -> Result<TokenStream, Box<dyn Error>> {
+pub(crate) fn map_box(
+    namespace: &str,
+    seg: &PathSegment,
+) -> Result<TokenStream, Box<dyn ErrorTrait>> {
     match &seg.arguments {
         PathArguments::AngleBracketed(angle_args) => {
             let args = &angle_args.args;
             match args.len() {
-                0 => Err(Box::new(SchematizeError::MissingArgs(quote!(#seg)))),
+                0 => Err(Box::new(Error::MissingArgs(quote!(#seg)))),
                 1 => match args.first().unwrap() {
                     GenericArgument::Type(t) => map_ty(&namespace, t),
-                    _ => Err(Box::new(SchematizeError::NonTypeGenericArgument(
-                        quote!(#seg),
-                    ))),
+                    _ => Err(Box::new(Error::NonTypeGenericArgument(quote!(#seg)))),
                 },
-                _ => Err(Box::new(SchematizeError::MultipleArgs(quote!(#seg)))),
+                _ => Err(Box::new(Error::MultipleArgs(quote!(#seg)))),
             }
         }
-        _ => Err(Box::new(SchematizeError::MissingAngleBrackets(
-            quote!(#seg),
-        ))),
+        _ => Err(Box::new(Error::MissingAngleBrackets(quote!(#seg)))),
     }
 }
 
-fn map_option(namespace: &str, seg: &PathSegment) -> Result<TokenStream, Box<dyn Error>> {
+fn map_option(namespace: &str, seg: &PathSegment) -> Result<TokenStream, Box<dyn ErrorTrait>> {
     match &seg.arguments {
         syn::PathArguments::AngleBracketed(angle_args) => {
             let args = &angle_args.args;
             match args.len() {
-                0 => Err(Box::new(SchematizeError::MissingArgs(quote!(#seg)))),
+                0 => Err(Box::new(Error::MissingArgs(quote!(#seg)))),
                 1 => match args.first().unwrap() {
                     syn::GenericArgument::Type(t) => {
                         let _inner = map_ty(&namespace, t);
                         unimplemented!()
                     }
-                    _ => Err(Box::new(SchematizeError::NonTypeGenericArgument(
-                        quote!(#seg),
-                    ))),
+                    _ => Err(Box::new(Error::NonTypeGenericArgument(quote!(#seg)))),
                 },
-                _ => Err(Box::new(SchematizeError::MultipleArgs(quote!(#seg)))),
+                _ => Err(Box::new(Error::MultipleArgs(quote!(#seg)))),
             }
         }
-        _ => Err(Box::new(SchematizeError::MissingAngleBrackets(
-            quote!(#seg),
-        ))),
+        _ => Err(Box::new(Error::MissingAngleBrackets(quote!(#seg)))),
     }
 }
 
-fn map_vec(namespace: &str, seg: &PathSegment) -> Result<TokenStream, Box<dyn Error>> {
+fn map_vec(namespace: &str, seg: &PathSegment) -> Result<TokenStream, Box<dyn ErrorTrait>> {
     match &seg.arguments {
         syn::PathArguments::AngleBracketed(angle_args) => {
             let args = &angle_args.args;
             match args.len() {
-                0 => Err(Box::new(SchematizeError::MissingArgs(quote!(#seg)))),
+                0 => Err(Box::new(Error::MissingArgs(quote!(#seg)))),
                 1 => match args.first().unwrap() {
                     syn::GenericArgument::Type(t) => {
                         let inner = map_ty(namespace, t)?;
                         Ok(quote!(avro_rs::schema::Schema::Array(Box::new(#inner))))
                     }
-                    _ => Err(Box::new(SchematizeError::NonTypeGenericArgument(
-                        quote!(#seg),
-                    ))),
+                    _ => Err(Box::new(Error::NonTypeGenericArgument(quote!(#seg)))),
                 },
-                _ => Err(Box::new(SchematizeError::MultipleArgs(quote!(#seg)))),
+                _ => Err(Box::new(Error::MultipleArgs(quote!(#seg)))),
             }
         }
-        _ => Err(Box::new(SchematizeError::MissingAngleBrackets(
-            quote!(#seg),
-        ))),
+        _ => Err(Box::new(Error::MissingAngleBrackets(quote!(#seg)))),
     }
 }
 
-pub(crate) fn map_segs(namespace: &str, seg: &PathSegment) -> Result<TokenStream, Box<dyn Error>> {
+pub(crate) fn map_segs(
+    namespace: &str,
+    seg: &PathSegment,
+) -> Result<TokenStream, Box<dyn ErrorTrait>> {
     let seg_id_string = seg.ident.to_string();
     match seg_id_string.as_str() {
         "Box" => map_box(&namespace, seg),
@@ -165,23 +149,19 @@ pub(crate) fn map_segs(namespace: &str, seg: &PathSegment) -> Result<TokenStream
                             let seg_id = &seg.ident;
                             Ok(quote!(#seg_id::<#t>::schematize(Some(String::from(#namespace)))))
                         }
-                        _ => Err(Box::new(SchematizeError::NonTypeGenericArgument(
-                            quote!(#seg),
-                        ))),
+                        _ => Err(Box::new(Error::NonTypeGenericArgument(quote!(#seg)))),
                     },
-                    _ => Err(Box::new(SchematizeError::MultipleArgs(quote!(#seg)))),
+                    _ => Err(Box::new(Error::MultipleArgs(quote!(#seg)))),
                 }
             }
-            _ => Err(Box::new(SchematizeError::MissingAngleBrackets(
-                quote!(#seg),
-            ))),
+            _ => Err(Box::new(Error::MissingAngleBrackets(quote!(#seg)))),
         },
     }
 }
 
-fn map_path(namespace: &str, path: &Path) -> Result<TokenStream, Box<dyn Error>> {
+fn map_path(namespace: &str, path: &Path) -> Result<TokenStream, Box<dyn ErrorTrait>> {
     if path.segments.is_empty() {
-        Err(Box::new(SchematizeError::EmptyPath(quote!(#path))))
+        Err(Box::new(Error::EmptyPath(quote!(#path))))
     } else if let Some(id) = path.get_ident() {
         map_id(namespace, id)
     } else if path.segments.len() == 1 {
@@ -199,7 +179,7 @@ fn map_path(namespace: &str, path: &Path) -> Result<TokenStream, Box<dyn Error>>
     }
 }
 
-fn marked_skip(attrs: &[Attribute]) -> bool {
+pub(crate) fn marked_skip(attrs: &[Attribute]) -> bool {
     attrs.iter().any(|attr| match attr.parse_meta() {
         Ok(meta) => match meta {
             Meta::List(ml) => {
@@ -223,7 +203,7 @@ pub(crate) fn map_tuple(
     namespace: &str,
     variant: Option<&str>,
     tys: Vec<&Type>,
-) -> Result<TokenStream, Box<dyn Error>> {
+) -> Result<TokenStream, Box<dyn ErrorTrait>> {
     let namespace = if let Some(v) = variant {
         format!("{}.{}", namespace, v)
     } else {
@@ -263,37 +243,27 @@ pub(crate) fn map_tuple(
 }
 
 pub(crate) fn map_struct(
-    namespace: &str,
-    variant: Option<&str>,
+    id: &Ident,
     fields: Vec<(&Ident, &Type)>,
-) -> Result<TokenStream, Box<dyn Error>> {
-    let namespace = if let Some(v) = variant {
-        format!("{}.{}", namespace, v)
-    } else {
-        namespace.to_string()
-    };
-
-    let mut fids: Vec<Ident> = Vec::with_capacity(fields.len());
+) -> Result<TokenStream, Box<dyn ErrorTrait>> {
+    let struct_id_string = id.to_string();
+    let mut fids: Vec<&Ident> = Vec::with_capacity(fields.len());
     let mut fid_strings: Vec<String> = Vec::with_capacity(fields.len());
     let mut fschemas: Vec<proc_macro2::TokenStream> = Vec::with_capacity(fields.len());
     let mut fpositions: Vec<usize> = Vec::with_capacity(fields.len());
 
-    for (pos, (fid, fty)) in fields.named.iter().enumerate() {
-        let syn::Field {
-            ident, ty, attrs, ..
-        } = nf;
-        let id = ident.as_ref().unwrap().clone();
-        let id_str = id.to_string();
-        let schema = map_ty(&namespace, &ty);
-        fids.push(id);
+    for (pos, (fid, fty)) in fields.iter().enumerate() {
+        let fid_str = fid.to_string();
+        let schema = map_ty(&struct_id_string, &fty);
+        fids.push(fid);
         fschemas.push(schema?);
-        fid_strings.push(id_str);
+        fid_strings.push(fid_str);
         fpositions.push(pos);
     }
 
     Ok(quote!(avro_rs::schema::Schema::Record {
         name: avro_rs::schema::Name {
-            name: std::string::String::from(#id_string),
+            name: std::string::String::from(#struct_id_string),
             namespace: Some(this_namespace.clone()),
             aliases: None,
         },
@@ -316,13 +286,39 @@ pub(crate) fn map_struct(
     }))
 }
 
-fn map_union(variants: Vec<&Variant>) -> Result<TokenStream, Box<dyn Error>> {
+pub(crate) fn extract_named_fields(
+    named: &Punctuated<Field, Comma>,
+) -> Result<Vec<(&Ident, &Type)>, Box<dyn ErrorTrait>> {
+    Ok(named
+        .iter()
+        .filter_map(
+            |Field {
+                 attrs, ident, ty, ..
+             }| {
+                let id = ident
+                    .as_ref()
+                    .map_or(Err(Error::NamedFieldMissingIdent), |n| Ok(n))
+                    .ok()?;
+                if !marked_skip(attrs) {
+                    Some((id, ty))
+                } else {
+                    None
+                }
+            },
+        )
+        .collect::<Vec<(&Ident, &Type)>>())
+}
+
+pub(crate) fn map_union(
+    enum_id_string: &str,
+    variants: &Vec<Variant>,
+) -> Result<TokenStream, Box<dyn ErrorTrait>> {
     let mut vids: Vec<Ident> = Vec::with_capacity(variants.len());
     let mut vid_strings: Vec<String> = Vec::with_capacity(variants.len());
     let mut vschemas: Vec<proc_macro2::TokenStream> = Vec::with_capacity(variants.len());
     let mut vpositions: Vec<usize> = Vec::with_capacity(variants.len());
 
-    for (pos, &variant) in variants.iter().enumerate() {
+    for (pos, variant) in variants.iter().enumerate() {
         let syn::Variant {
             ident,
             attrs,
@@ -330,34 +326,15 @@ fn map_union(variants: Vec<&Variant>) -> Result<TokenStream, Box<dyn Error>> {
             ..
         } = variant;
         if !marked_skip(&attrs) {
-            let variant_id = ident.as_ref().unwrap().clone();
-            let variant_id_string = variant_id.to_string();
-            let namespace = format!("{}.{}", &enum_id_string, &variant_id_string);
+            let variant_id_string = ident.to_string();
+            let namespace = format!("{}.{}", enum_id_string, &variant_id_string);
             let schema = match fields {
-                Fields::Named(FieldsNamed { named, .. }) => map_struct(
-                    &namespace,
-                    Some(variant_id),
-                    named
-                        .iter()
-                        .filter_map(
-                            |Field {
-                                 attrs,
-                                 ident: Some(id),
-                                 ty,
-                                 ..
-                             }| {
-                                if !marked_skip(attrs) {
-                                    Some((id, ty))
-                                } else {
-                                    None
-                                }
-                            },
-                        )
-                        .collect::<Vec<(&Ident, &Type)>>(),
-                ),
+                Fields::Named(FieldsNamed { named, .. }) => {
+                    map_struct(&ident, extract_named_fields(named)?)
+                }
                 Fields::Unnamed(FieldsUnnamed { unnamed, .. }) => map_tuple(
                     &namespace,
-                    Some(variant_id),
+                    Some(&variant_id_string),
                     unnamed
                         .iter()
                         .filter_map(
@@ -371,24 +348,38 @@ fn map_union(variants: Vec<&Variant>) -> Result<TokenStream, Box<dyn Error>> {
                         )
                         .collect::<Vec<&Type>>(),
                 ),
-                Fields::Unit => quote!(avro_rs::schema::Schema::RecordField()),
+                Fields::Unit => Ok(quote!(avro_rs::schema::Schema::RecordField {
+                    name: std::string::String::from(#variant_id_string),
+                    doc: None,
+                    default: None,
+                    schema: avro_rs::schema::Schema::Null,
+                    order: avro_rs::schema::RecordFieldOrder::Ascending,
+                    position: #pos,
+                })),
             };
-            vids.push(variant_id);
+            vids.push(ident.clone());
             vschemas.push(schema?);
             vid_strings.push(variant_id_string);
             vpositions.push(pos);
         }
     }
 
-    Ok(quote!(avro_rs::scheme::Schema))
+    Ok(quote!(avro_rs::schema::Schema::Union(
+        avro_rs::schema::Schema::UnionSchema::new(std::vec![#(#vschemas)*,])
+    )))
 }
 
-fn map_enum(
-    namespace: &str,
+pub(crate) fn map_enum(
+    namespace: Option<&str>,
     id: &Ident,
     variants: Vec<String>,
-) -> Result<TokenStream, Box<dyn Error>> {
+) -> Result<TokenStream, Box<dyn ErrorTrait>> {
     let id_string = id.to_string();
+    let namespace = if let Some(ns) = namespace {
+        quote!(std::option::Option::Some(&std::string::String::from(#ns)))
+    } else {
+        quote!(std::option::Option::None)
+    };
     Ok(quote!(avro_rs::schema::Schema::Enum {
         name: Name {
             name: std::string::String::from(#id_string),
