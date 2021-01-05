@@ -11,4 +11,5 @@ proc-macro = true
 syn = { version = "1.0.31", features = ["extra-traits"] }
 quote = "1.0.7"
 proc-macro2 = "1.0.19"
-avro-rs = { git = "https://github.com/bzm3r/avro-rs.git", branch = "master"}
+avro-rs = { path = "../avro-rs", features = ["schematize"] }
+#avro-rs = { git = "https://github.com/bzm3r/avro-rs.git", branch = "master"}
