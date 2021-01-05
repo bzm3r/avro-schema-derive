@@ -1,5 +1,6 @@
 mod maps;
 use quote::quote;
+use std::error::Error;
 use std::iter::Iterator;
 use syn::{
     parse_macro_input, Attribute, Data, DataEnum, DataStruct, DeriveInput, Fields, FieldsNamed,
@@ -26,12 +27,15 @@ fn skip_field(attrs: &[Attribute]) -> bool {
     })
 }
 
-fn gen_struct_impl(id: Ident, generics: Generics, nfs: FieldsNamed) -> proc_macro2::TokenStream {
+fn gen_struct_impl(
+    id: Ident,
+    generics: Generics,
+    nfs: FieldsNamed,
+) -> Result<proc_macro2::TokenStream, Box<dyn Error>> {
     let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
     let id_string: String = format!("{}", id.to_string());
 
     let mut fids: Vec<Ident> = vec![];
-    let mut ftys: Vec<Type> = vec![];
     let mut fid_strings: Vec<String> = vec![];
     let mut fschemas: Vec<proc_macro2::TokenStream> = vec![];
     let mut fpositions: Vec<usize> = vec![];
@@ -43,28 +47,24 @@ fn gen_struct_impl(id: Ident, generics: Generics, nfs: FieldsNamed) -> proc_macr
         if !skip_field(attrs) {
             let id = ident.as_ref().unwrap().clone();
             let id_str = id.to_string();
-            let schema = maps::map_type(&id_str, ty);
+            let schema = maps::map_ty(&id_str, ty);
             fids.push(id);
-            ftys.push(ty.clone());
+            fschemas.push(schema?);
             fid_strings.push(id_str);
-            fschemas.push(schema);
             fpositions.push(pos);
         }
     }
 
-    quote!(
-        impl#impl_generics crate::utils::avro::Schematized for #id #ty_generics #where_clause {
+    Ok(quote!(
+        impl#impl_generics avro_rs::schema_gen::Schematized for #id #ty_generics #where_clause {
             // Hello world! #impl_generics
-            fn schematize(parent_space: Option<String>) -> avro_rs::schema::Schema {
-                let new_namespace = if let Some(pns) = parent_space.as_ref() {
-                    Some(vec![String::from(pns), String::from(#id_string)].join("."))
-                } else {
-                    Some(String::from(#id_string))
-                };
+            fn schematize(parent_namespace: Option<std::string::String>) -> avro_rs::schema::Schema {
+                let id_string = std::string::String::from(#id_string);
+                let this_namespace = parent_namespace.as_ref().map_or(id_string.clone(), |ns| std::format!("{}.{}", ns, &id_string));
                 avro_rs::schema::Schema::Record {
                     name: avro_rs::schema::Name {
-                        name: String::from(#id_string),
-                        namespace: parent_space.clone(),
+                        name: std::string::String::from(#id_string),
+                        namespace: Some(this_namespace.clone()),
                         aliases: None,
                     },
                     doc: None,
@@ -74,7 +74,7 @@ fn gen_struct_impl(id: Ident, generics: Generics, nfs: FieldsNamed) -> proc_macr
                             doc: None,
                             default: None,
                             schema: #fschemas,
-                            order: avro_rs::schema::RecordFieldOrder::Ignore,
+                            order: avro_rs::schema::RecordFieldOrder::Ascending,
                             position: #fpositions,
                         }
                     ),*],
@@ -86,10 +86,14 @@ fn gen_struct_impl(id: Ident, generics: Generics, nfs: FieldsNamed) -> proc_macr
                 }
             }
         }
-    )
+    ))
 }
 
-fn gen_enum_impl(_id: Ident, _generics: Generics, _variants: Vec<Variant>) -> proc_macro2::TokenStream {
+fn gen_enum_impl(
+    _id: Ident,
+    _generics: Generics,
+    _variants: Vec<Variant>,
+) -> Result<proc_macro2::TokenStream, Box<dyn Error>> {
     unimplemented!()
 }
 
@@ -105,12 +109,13 @@ pub fn derive(input: proc_macro::TokenStream) -> proc_macro::TokenStream {
         Data::Struct(DataStruct {
             fields: Fields::Named(nfs),
             ..
-        }) => gen_struct_impl(id, generics, nfs),
+        }) => gen_struct_impl(id, generics, nfs).unwrap(),
         Data::Enum(DataEnum { variants, .. }) => gen_enum_impl(
             id,
             generics,
             variants.iter().map(|v| v.clone()).collect::<Vec<Variant>>(),
-        ),
+        )
+        .unwrap(),
         _ => panic!("Can only handle structs with named fields, and enums."),
     };
 
